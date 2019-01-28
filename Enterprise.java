@@ -27,11 +27,12 @@ Added method updateRules() - to update the fuzzy rules
 import au.edu.ecu.is.fuzzy.*;
 import battle.Constants;
 import battle.saucers.Saucer;
-import battle.saucers.Saucer;
 import java.awt.Color;
 import java.util.Random;
 import java.util.ArrayList;
 import battle.sensors.SensorData;
+import java.util.Queue; 
+
 
 
 
@@ -51,7 +52,7 @@ public class Enterprise implements SaucerController
     private FuzzyVariable playStyle;     // The variable for style of play
     private FuzzyVariable range;         // The distance from the opponent
     private FuzzyVariable outputPower;   // The variable used to compute the amount of power put into each operation
-
+    private FuzzyVariable accuracy;
     
     FuzzySet[] rpsets;
     FuzzySet[] apsets;
@@ -70,13 +71,21 @@ public class Enterprise implements SaucerController
     private SensorData nearestBlast;
     private boolean dodgeBlast = false;
     private double energy;
-
+    private double deterioration;
+    private double newValue;
+    private double oldValue;
+    private double foecount;
+    private double enemyStats[];
+    private double firepower;
+    private ArrayList<Double> opponentHealths = new ArrayList<Double>();
+    
+    
     
     
     
     public Enterprise() throws FuzzyException, Exception
     {
-        
+        oldValue=10000;
         //create a variable for range, which will be used to put the distance from the target into perspective
 
          final double fullRange = Math.sqrt(Constants.STARFIELD_WIDTH*Constants.STARFIELD_WIDTH+
@@ -156,6 +165,22 @@ public class Enterprise implements SaucerController
         playStyle.add(aggressive2);
         
         playStyle.display();
+        
+        
+        accuracy = new FuzzyVariable("accuracy", "%", 0, 100, 2);
+        FuzzySet terrible = new FuzzySet("terrible", 0, 0, 20, 25);
+        FuzzySet bad = new FuzzySet("bad", 20, 30, 40, 60);
+        FuzzySet good = new FuzzySet("good", 40, 60, 70, 80);
+        FuzzySet great = new FuzzySet("great", 75, 80, 100, 100);
+        
+        accuracy.add(terrible);
+        accuracy.add(bad);
+        accuracy.add(good);
+        accuracy.add(great);
+        
+        accuracy.display();
+
+
            
         
         
@@ -222,6 +247,16 @@ public class Enterprise implements SaucerController
             target = data.get(0);
             for(SensorData thisData: data)
             {
+                opponentHealths.add(thisData.energy);
+                if(thisData.distance < closest)
+                {
+                    target = thisData;
+                    closest = thisData.distance;
+                }
+            }
+            
+            for(SensorData thisData: data)
+            {
                 if(thisData.distance < closest)
                 {
                     target = thisData;
@@ -234,6 +269,8 @@ public class Enterprise implements SaucerController
             target = null;
         }
     }
+    
+
 
     public void sensePowerUps(ArrayList<SensorData> data) throws Exception 
     {
@@ -305,6 +342,7 @@ public class Enterprise implements SaucerController
     public SensorData getTarget() throws Exception 
     {   
         
+        
         if(Math.random() < 0.5)
         {
             return target;
@@ -313,6 +351,7 @@ public class Enterprise implements SaucerController
         {
             return null;
         }
+        //remeber that the old target data must be dumped when the target is switched
     }
             
     public void updateRules() throws Exception
@@ -333,16 +372,62 @@ public class Enterprise implements SaucerController
         //Check if evasive Maneuveres need to be taken
         
         // fire rules to compute power
+        newValue = energy;
         
+
+        
+        oldValue=newValue;
         
         playStyleRules.update();
         outputControl.update();
     }
             
-            
-            
+    private void createQueue ()
+    {
+            // Adds elements {0, 1, 2, 3, 4} to queue 
+        for (int i=0; i<5; i++)
+        {
+
+        }
     
-    public double getFirePower() throws Exception
+    }
+    
+    public boolean targetShieldsUp()
+    {
+        return false;
+    }
+    
+    private boolean evade()
+    {
+        //if there is activity from the other saucers, then dreanaught must evade
+        //must stack
+        return false;
+    }
+    
+    private void updateEnemyFirelist()
+    {
+        // if an enemy deterioration goes between 50 to 100 (nearest), it must be put into a queue
+    }
+    
+    private void updateFireList()
+    {
+       //The shots fired by dreadnaught must be recorded for accuracy readings
+        
+        // or scratch that, we'll update her firing control based on relative detirioration and relative power
+    }
+    
+    private void dumpTargetData()
+    {
+        // this method is used to remove the old targets data if the target is switched
+    }
+    
+    private void findAssialant(double hitfactor)
+    {
+        //if Dreadnaught is hit it will perform a search looking through 
+        // the enemy firelists for fot a likely assailant
+    }
+            
+    private void firingControl() throws Exception
     {
         updateRules();
         final double fullRange = Math.sqrt(Constants.STARFIELD_WIDTH*Constants.STARFIELD_WIDTH+
@@ -354,13 +439,23 @@ public class Enterprise implements SaucerController
         
         //The following is a check to ensure that the saucer does not fire 
         //when the firepower is insufficient to cover the distance to the target
-        if (powerValue < ((range.getValue())/fullRange)*100)
+        if (powerValue < ((range.getValue())/fullRange)*10)
         {
-            return 0;
+            deterioration=oldValue-newValue;
+            System.out.println(deterioration);
+            firepower = 0;
+     
         };
         
         //The final return for the firepower, based of power and range
-        return powerValue*(range.getValue()/fullRange*100);
+        updateFireList();
+        firepower = powerValue*(range.getValue()/fullRange*100);
+    }
+    
+    public double getFirePower() throws Exception
+    {
+        firingControl();
+        return firepower;
     }
     
     //if (powerValue >7)
@@ -413,8 +508,8 @@ public class Enterprise implements SaucerController
     
         public boolean getShields()
     {
-        return dodgeBlast && energy > Constants.SAUCER_START_ENERGY/2;
-    }
+        return false;
+    }   
     
     public String getName()
     {
@@ -432,3 +527,4 @@ public class Enterprise implements SaucerController
     }
     
 }
+
