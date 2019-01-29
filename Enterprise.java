@@ -41,17 +41,16 @@ public class Enterprise implements SaucerController
     // This will be the rule set
     
     
-    private MamdaniRuleSet playStyleRules;
-    private MamdaniRuleSet outputControl;
+    private MamdaniRuleSet confidenceRules;
     
     
     // These will be the input variables
     
     private FuzzyVariable relativePower; // The power of the saucer in comparison to the opponent
-    private FuzzyVariable actualPower;   // The power of the saucer as a percentage of total power
+    private FuzzyVariable averagePower;
+    private FuzzyVariable confidence;// The power of the saucer as a percentage of total power
     private FuzzyVariable playStyle;     // The variable for style of play
     private FuzzyVariable range;         // The distance from the opponent
-    private FuzzyVariable outputPower;   // The variable used to compute the amount of power put into each operation
     private FuzzyVariable accuracy;
     
     FuzzySet[] rpsets;
@@ -60,8 +59,8 @@ public class Enterprise implements SaucerController
     
     private static final Random random = new Random();
     private static final String NAME = "Enterprise";
-    private static final Color BASE = Color.white;
-    private static final Color ARROW = Color.red;
+    private static final Color BASE = Color.gray;
+    private static final Color ARROW = Color.darkGray;
     public double opponentBearing;
     
     
@@ -71,13 +70,27 @@ public class Enterprise implements SaucerController
     private SensorData nearestBlast;
     private boolean dodgeBlast = false;
     private double energy;
-    private double deterioration;
+    private double localDeterioration;
+    private double targetDeterioration;
     private double newValue;
     private double oldValue;
-    private double foecount;
-    private double enemyStats[];
     private double firepower;
+    private double averageHealth;
+    private double damageOverPeriod;
+    private double targetDamageOverPeriod;
+    private double localInitDmg=10000;
+    private double targetInitDmg=10000;
+    private double closestBlastProximity;
+    private double expectedDamageOverPeriod;
+    private double speed = 0;
+    private double heading=0;
+    private ArrayList<SensorData> opponentData = new ArrayList<SensorData>();
+    private ArrayList<Double> blankArray= new ArrayList<Double>();
     private ArrayList<Double> opponentHealths = new ArrayList<Double>();
+    private ArrayList<Double> fireTracker = new ArrayList<Double>();
+    private ArrayList<Double> localDamageSense = new ArrayList<Double>();
+    private ArrayList<Double> targetDamageSense = new ArrayList<Double>();
+    
     
     
     
@@ -85,7 +98,21 @@ public class Enterprise implements SaucerController
     
     public Enterprise() throws FuzzyException, Exception
     {
-        oldValue=10000;
+        double initHealth=10000;
+        localInitDmg=initHealth;
+        targetInitDmg=initHealth;
+        targetDamageOverPeriod=0;
+        expectedDamageOverPeriod=0;
+        
+        double zero=0;
+        for(int i = 0; i < 50; ++i)blankArray.add(zero);
+        //opponentHealths=blankArray;
+        //localDamageSense=blankArray;
+        //targetDamageSense=blankArray;
+        //System.out.println(localDamageSense.size());
+        //System.out.println(localDamageSense);
+        
+        
         //create a variable for range, which will be used to put the distance from the target into perspective
 
          final double fullRange = Math.sqrt(Constants.STARFIELD_WIDTH*Constants.STARFIELD_WIDTH+
@@ -105,67 +132,68 @@ public class Enterprise implements SaucerController
          
         
 
-        final double maxOutput = 10;
-        outputPower = new FuzzyVariable("outputPower FP Var", "%", 0, 10, 2);
-        FuzzySet highOutput = new FuzzySet("high", 5.0, 6, maxOutput, maxOutput);
-        FuzzySet regularOutput = new FuzzySet("regularOutput", 2, 3, 7, 8);
-        FuzzySet lowOutput = new FuzzySet("lowOutput", 0, 0, 4, 5);
-        FuzzySet nullOutput = new FuzzySet("nullOutput", 0, 0, 0, 0);
-        outputPower.add(highOutput);
-        outputPower.add(regularOutput);
-        outputPower.add(lowOutput);
-        outputPower.add(nullOutput);
-        outputPower.display();
-
         // create fuzzy variable relative power between the Saucer and the opponent as a percentage
-        double maxrp = 1000000000;
-        relativePower = new FuzzyVariable("relativepower", "%", 0, maxrp, 2);
-        FuzzySet relativeLow = new FuzzySet("Low", 0, 10, 65, 75);
-        FuzzySet relativeMedium = new FuzzySet("Medium", 65, 100, 120, 135);
-        FuzzySet relativeHigh = new FuzzySet("High", 115, 140, maxrp, maxrp);
-        relativePower.add(relativeLow);
-        relativePower.add(relativeMedium);
-        relativePower.add(relativeHigh);
-        relativePower.display();
-        relativePower.display();       
+        double maxpower = 1000000000;
+        //double maxpower = 200;
+        FuzzySet powerLow = new FuzzySet("Low", 0, 0, 40, 50);
+        FuzzySet powerMidLow = new FuzzySet("Mid Low", 40, 50, 60, 70);
+        FuzzySet powerMedium = new FuzzySet("Medium", 60, 70, 110, 130);
+        FuzzySet powerHigh = new FuzzySet("High", 110, 130, 150, 175);
+        FuzzySet powerVeryHigh = new FuzzySet("Very High", 150, 175, maxpower, maxpower);
+        
+        relativePower = new FuzzyVariable("relativepower", "%", 0, maxpower, 2);
+        relativePower.add(powerLow);
+        relativePower.add(powerMidLow);
+        relativePower.add(powerMedium);
+        relativePower.add(powerHigh);
+        relativePower.add(powerVeryHigh);
+        relativePower.display();     
+        
+        averagePower = new FuzzyVariable("averagepower", "%", 0, maxpower, 2);
+        averagePower.add(powerLow);
+        averagePower.add(powerMidLow);
+        averagePower.add(powerMedium);
+        averagePower.add(powerHigh);
+        averagePower.add(powerVeryHigh);
+        averagePower.display();
+        
+        confidence = new FuzzyVariable("confidence", "%", 0.3, 2, 2);
+        FuzzySet confidenceLow = new FuzzySet("Low", 0.3, 0.4, 0.5, 0.6 );
+        FuzzySet confidenceMedium = new FuzzySet("Mid Low", 0.5, 0.6, 1, 1.25);
+        FuzzySet confidenceHigh = new FuzzySet("Medium", 1, 1.25, 1.5, 1.75);
+        FuzzySet confidenceVeryHigh = new FuzzySet("High", 1.5, 1.75, 2, 2);
+        
+        confidence.add(confidenceLow);
+        confidence.add(confidenceMedium);
+        confidence.add(confidenceHigh);
+        confidence.add(confidenceVeryHigh);
+        confidence.display();
+        
+        
+        confidenceRules = new MamdaniRuleSet();
+
+        
+        FuzzySet[] yset = {powerLow, powerMidLow, powerMedium,powerHigh,powerVeryHigh};
+        FuzzySet[] xset = yset; //{safe1, safe2 , cautious1 ,cautious2 ,cautious3 , cautious4 , cautious5 , aggressive1 , aggressive2};
+        FuzzySet[][] confidenceRulesMatrix =
+        {
+            //av powerLow ,powerMidLow   powerMedium   powerHigh     powerVeryHigh       relative
+            {confidenceLow,confidenceLow,confidenceLow,confidenceMedium,confidenceHigh}, //powerLow
+            {confidenceLow,confidenceLow,confidenceMedium,confidenceMedium,confidenceHigh}, //powerMidLow
+            {confidenceLow,confidenceLow,confidenceMedium,confidenceMedium,confidenceHigh}, //powerMedium
+            {confidenceLow,confidenceMedium,confidenceHigh,confidenceHigh,confidenceVeryHigh}, //powerHigh
+            {confidenceLow,confidenceMedium,confidenceHigh,confidenceVeryHigh,confidenceVeryHigh} //powerVeryHigh
+        };
+        
+        
+        
+        
+        
+        confidenceRules.addRuleMatrix(
+                relativePower, yset,
+                averagePower, xset,
+                confidence, confidenceRulesMatrix);
           
-        
-        // create fuzzy variable for current energy level as a percentage value
-        actualPower = new FuzzyVariable("actual energy", "*", 0, 100, 2);
-        FuzzySet high = new FuzzySet("high", 65, 80, 100, 100);
-        FuzzySet medium = new FuzzySet("medium", 30, 45, 65, 70);
-        FuzzySet low = new FuzzySet("low", 15, 20, 30, 35);
-        FuzzySet critical = new FuzzySet("critical", 0, 0, 15, 20);
-        actualPower.add(high);
-        actualPower.add(medium);
-        actualPower.add(low);
-        actualPower.add(critical);
-        actualPower.display();
-        
-        //creat a fuzzy variable for the current behavoir of the saucer
-        playStyle = new FuzzyVariable("playStyle", "%", 0, 100, 2);
-        FuzzySet safe1 = new FuzzySet("safe 1", 0, 0, 10, 20);
-        FuzzySet safe2 = new FuzzySet("safe 2", 0, 10, 20, 30);
-        FuzzySet cautious1 = new FuzzySet("caution 1", 10, 20, 30, 40);
-        FuzzySet cautious2 = new FuzzySet("caution 2", 20, 30, 40, 50);
-        FuzzySet cautious3 = new FuzzySet("caution 3", 30, 40, 50, 60);
-        FuzzySet cautious4 = new FuzzySet("caution 4", 40, 50, 60, 70);
-        FuzzySet cautious5 = new FuzzySet("caution 5", 50, 60, 70, 80);
-        FuzzySet aggressive1 = new FuzzySet("aggressive 1", 60, 70, 80, 90);
-        FuzzySet aggressive2 = new FuzzySet("aggressive 2", 70, 80, 90, 100);
-        
-        playStyle.add(safe1);
-        playStyle.add(safe2);
-        playStyle.add(cautious1);
-        playStyle.add(cautious2);
-        playStyle.add(cautious3);
-        playStyle.add(cautious4);
-        playStyle.add(cautious5);
-        playStyle.add(aggressive1);
-        playStyle.add(aggressive2);
-        
-        playStyle.display();
-        
         
         accuracy = new FuzzyVariable("accuracy", "%", 0, 100, 2);
         FuzzySet terrible = new FuzzySet("terrible", 0, 0, 20, 25);
@@ -176,62 +204,134 @@ public class Enterprise implements SaucerController
         accuracy.add(terrible);
         accuracy.add(bad);
         accuracy.add(good);
-        accuracy.add(great);
-        
+        accuracy.add(great);  
         accuracy.display();
-
-
-           
+    
+    }
+    
+    public void updateLocalSensors()
+    {
+        double damagetaken = localInitDmg - energy;
         
-        
-                //Rule matrix for Playstyle
-        playStyleRules = new MamdaniRuleSet();
-        
-        FuzzySet[] rpsets = {relativeLow, relativeMedium,relativeHigh};
-        FuzzySet[] apsets = {high, medium, low , critical};
-        
-        
-         FuzzySet[][] currentPlaystyle =
+        if (damagetaken < 0)
         {
-            // high   medium     low    , critical
-            {cautious3,     cautious1,   safe2 ,safe1}, // relativeLow
-            {aggressive1,   cautious4,  cautious3 ,cautious2},  // relativeMedium
-            {aggressive2, aggressive1, cautious5 , cautious4}  // relativeHigh
-        };
+            
+            int count = 0 ;
+            for (double i: localDamageSense){
+                 localDamageSense.set(count,i+damagetaken);
+                 count++;
+            }
+        }
         
-        
-         playStyleRules.addRuleMatrix(
-                relativePower, rpsets,
-                actualPower, apsets,
-                playStyle, currentPlaystyle);
-         
-
-        outputControl = new MamdaniRuleSet();
-
-        
-        FuzzySet[] rangeSets = {shortRange, midRange, maxRange};
-        FuzzySet[] playSets = {safe1, safe2 , cautious1 ,cautious2 ,cautious3 , cautious4 , cautious5 , aggressive1 , aggressive2};
-        FuzzySet[][] outputControlMatrix =
+        else
         {
-            //safe1,     safe2 ,        cautious1       ,cautious2      ,cautious3      , cautious4     , cautious5     , aggressive1   , aggressive2,    aggressive3
-            {lowOutput  , lowOutput    ,regularOutput   ,regularOutput , regularOutput, highOutput     , highOutput     , highOutput     , highOutput}, //shortRange
-            {nullOutput  , lowOutput ,  lowOutput     , lowOutput     , lowOutput     , lowOutput     , regularOutput   , regularOutput  , highOutput},//midRange
-            {nullOutput , nullOutput ,  lowOutput ,     lowOutput     , lowOutput     , lowOutput     , lowOutput     , lowOutput        , regularOutput}//maxRange
-        };
+
+            if (damagetaken<10)
+            {
+                localDeterioration = damagetaken;
+            }
+                
+            if (damagetaken>10)
+             {
+                localDamageSense.add(damagetaken);
+                if (localDamageSense.size()>10)
+                    {
+                        localDamageSense.remove(0);
+                    }
+
+                    //localDamageSense.remove(0);   
+                }
+            localInitDmg=energy;
+
+
+            //System.out.println("oppoent "+targetDeterioration);
+            //System.out.println(localDamageSense);    
+
+            double sum = 0;
+            for(Double d : localDamageSense)sum += d;
+
+            damageOverPeriod = sum;
+            //System.out.println(damageOverPeriod);
+        } 
+    }
+    
+    public void updateOpponentDamageSensors()
+    {
+        double damagetaken = targetInitDmg - target.energy;
         
+        if (damagetaken < 0)
+        {
+            
+            int count = 0 ;
+            for (double i: targetDamageSense){
+                 targetDamageSense.set(count,i+damagetaken);
+                 count++;
+            }
+        }
         
-        
-        
-        
-        outputControl.addRuleMatrix(
-                range, rangeSets,
-                playStyle, playSets,
-                outputPower, outputControlMatrix);
-        
-        //updateRules();
+        else
+        {
+
+            if (damagetaken<10)
+            {
+                targetDeterioration = damagetaken;
+            }
+            if (damagetaken>10)
+            {
+                targetDamageSense.add(damagetaken);
+                if (targetDamageSense.size()>10)
+                {
+                    targetDamageSense.remove(0);
+                }
+                //System.out.println(targetDamageSense); 
+                //localDamageSense.remove(0);   
+            }
+            targetInitDmg=target.energy;
+
+
+        //System.out.println("oppoent "+targetDeterioration);
+        //System.out.println(localDamageSense);    
+
+        double sum = 0;
+        for(Double d : targetDamageSense)sum += d;
+        targetDamageOverPeriod = sum;
+
+        //System.out.println("targetD"+targetDeterioration);
+        //System.out.println("targetDPM"+targetDamageOverPeriod);
+        }
         
     }
-       
+    
+    public void upadteDamageOutputSensors(double damage)
+    {
+        
+        double damagetaken = targetInitDmg - target.energy;
+ 
+        if (damagetaken<0)
+        {
+            fireTracker.add(damage*Constants.SAUCER_HIT_FACTOR);
+        }
+        
+        if (fireTracker.size()>10)
+        {
+            fireTracker.remove(0);
+        }
+
+        
+        
+    //System.out.println("oppoent "+targetDeterioration);
+    //System.out.println(localDamageSense);    
+        
+    double sum = 0;
+    for(Double d : fireTracker)sum += d;
+    expectedDamageOverPeriod = sum;
+    
+    //System.out.println("targetD"+targetDeterioration);
+    //System.out.println("targetDPM"+targetDamageOverPeriod);
+        
+    }
+    
+
          
             
     public void senseSaucers(ArrayList<SensorData> data) throws Exception 
@@ -239,13 +339,14 @@ public class Enterprise implements SaucerController
         //updateRules();
         // This is where you get told about enemies
         // save whatever information you need in suitable member variables
-        
         // find the closest enemy to target - this will be used later in getTarget()
-        if(data.size() > 0)
+        opponentData=data;
+        
+        if(opponentData.size() > 0)
         {
-            double closest = data.get(0).distance;
-            target = data.get(0);
-            for(SensorData thisData: data)
+            double closest = opponentData.get(0).distance;
+            target = opponentData.get(0);
+            for(SensorData thisData: opponentData)
             {
                 opponentHealths.add(thisData.energy);
                 if(thisData.distance < closest)
@@ -255,21 +356,31 @@ public class Enterprise implements SaucerController
                 }
             }
             
-            for(SensorData thisData: data)
-            {
-                if(thisData.distance < closest)
-                {
-                    target = thisData;
-                    closest = thisData.distance;
-                }
-            }
+            averageHealth=reqAveragePower(opponentData);
+            //System.out.println("Average Health = "+averageHealth);
+            //System.out.println("Health of Strongest = "+reqStrongestOpponent(opponentData));
+            //System.out.println("So-OH = "+opponentHealths.size());
+            //System.out.println("local "+localDeterioration);
+            //System.out.println("oppoent "+targetDeterioration);
+            //System.out.println("count "+localDamageSense);
+            //System.out.println("damagecounter "+damageOverPeriod);
+            
+            opponentHealths.clear();
+                    
+        updateLocalSensors();
+        updateOpponentDamageSensors();
+        System.out.println("accuracy=" + targetDamageOverPeriod/expectedDamageOverPeriod);
+        //accuracy.setValue(targetDamageOverPeriod/expectedDamageOverPeriod);
+        //System.out.println("accuracy=" + accuracy.getValue());
         }
         else
         {
-            target = null;
+            opponentData = null;
         }
+
     }
     
+
 
 
     public void sensePowerUps(ArrayList<SensorData> data) throws Exception 
@@ -306,16 +417,25 @@ public class Enterprise implements SaucerController
         // save whatever information you need in suitable member variables
         
         // find the closest blast
+        double closest=1000;
+        closestBlastProximity=closest;
+        System.out.println("size= "+data.size());
         if(data.size() > 0)
         {
-            double closest = data.get(0).distance;
+            closest = data.get(0).distance;
+            closestBlastProximity=closest;
             nearestBlast = data.get(0);
+            
             for(SensorData thisData: data)
             {
+                System.out.println("actual "+thisData.distance);
+                System.out.println("got here");
                 if(thisData.distance < closest)
                 {
                     nearestBlast = thisData;
                     closest = thisData.distance;
+                    closestBlastProximity=closest;
+                    System.out.println(thisData.distance);
                 }
             }
             
@@ -336,6 +456,8 @@ public class Enterprise implements SaucerController
        this.energy = energy;
     }
     
+    
+    
     // methods below determine what your saucer does
 
     // fires at random intervals
@@ -343,32 +465,30 @@ public class Enterprise implements SaucerController
     {   
         
         
-        if(Math.random() < 0.5)
-        {
-            return target;
-        }
-        else
-        {
-            return null;
-        }
+
+            return reqStrongestOpponent(opponentData);
+
         //remeber that the old target data must be dumped when the target is switched
     }
             
     public void updateRules() throws Exception
     {
+        
+        
         getTarget();
         
         opponentBearing=target.heading;
-        
-        playStyleRules.clearVariables();
-        outputControl.clearVariables();
+        confidenceRules.clearVariables();
         
         // Set fuzzy input variable values
         
         range.setValue(target.distance);
-        actualPower.setValue(energy/Constants.SAUCER_START_ENERGY*100);
-        relativePower.setValue(energy/(target.energy+1)*100);        
+        averagePower.setValue(energy/(reqAveragePower(opponentData)+1)*100);
         
+        if (opponentData.size() > 0)
+        {
+        relativePower.setValue(energy/(reqStrongestOpponent(opponentData).energy+1)*100);        
+        }
         //Check if evasive Maneuveres need to be taken
         
         // fire rules to compute power
@@ -378,18 +498,15 @@ public class Enterprise implements SaucerController
         
         oldValue=newValue;
         
-        playStyleRules.update();
-        outputControl.update();
+        confidenceRules.update();
     }
-            
-    private void createQueue ()
-    {
-            // Adds elements {0, 1, 2, 3, 4} to queue 
-        for (int i=0; i<5; i++)
-        {
-
-        }
     
+    
+
+    
+    private boolean opponentIsViable()
+    {
+        return true;
     }
     
     public boolean targetShieldsUp()
@@ -404,20 +521,16 @@ public class Enterprise implements SaucerController
         return false;
     }
     
-    private void updateEnemyFirelist()
-    {
-        // if an enemy deterioration goes between 50 to 100 (nearest), it must be put into a queue
-    }
     
-    private void updateFireList()
+    private void resetTargetData()
     {
-       //The shots fired by dreadnaught must be recorded for accuracy readings
-        
-        // or scratch that, we'll update her firing control based on relative detirioration and relative power
-    }
-    
-    private void dumpTargetData()
-    {
+        expectedDamageOverPeriod = 0;
+        targetDamageOverPeriod = 0;
+        targetDeterioration = 0;
+        targetInitDmg=target.energy;
+        targetDamageSense.clear();
+        fireTracker.clear();
+        System.out.println("Target Data Reset");
         // this method is used to remove the old targets data if the target is switched
     }
     
@@ -435,26 +548,110 @@ public class Enterprise implements SaucerController
         
         //get the value of the fuzzy variable power, derived from the other fuzzy variables
         //and multiply it to convert it into a usable output
-        double powerValue = (outputPower.getValue()*10);
+        double powerValue = (50*confidence.getValue());
         
         //The following is a check to ensure that the saucer does not fire 
         //when the firepower is insufficient to cover the distance to the target
+        firepower=powerValue;
+        
         if (powerValue < ((range.getValue())/fullRange)*10)
         {
-            deterioration=oldValue-newValue;
-            System.out.println(deterioration);
+            updateLocalSensors();
+            //System.out.println(deterioration);
             firepower = 0;
      
         };
         
+        
+        
+        
+        
         //The final return for the firepower, based of power and range
-        updateFireList();
-        firepower = powerValue*(range.getValue()/fullRange*100);
+        //firepower = powerValue*(range.getValue()/fullRange*100);
     }
     
-    public double getFirePower() throws Exception
+    private void targetingSystem()
+    { //if (confidence is high)
+        
+    }
+    
+    private void throttleBoard(double originalSpeed) throws Exception
     {
+        speed = 50*confidence.getValue();
+        
+        if (closestBlastProximity < 400)
+        {
+            if (originalSpeed>50)
+            {
+                speed = speed-(20*confidence.getValue());
+            }
+            
+            else
+            {
+                speed = speed+(20*confidence.getValue());
+            }
+        }
+        
+        if (closestBlastProximity < 250)
+        {
+            if (originalSpeed>50)
+            {
+                speed = 0;
+            }
+            
+            else
+            {
+                speed=125;
+            }
+        }
+        
+        if (getShields()==true)
+        {
+            speed = 0;
+        }
+        
+        if (powerUpOn==true)
+        {
+            speed=125;
+        }
+        
+    }
+    
+    private void steeringBoard(double originalHeading) throws Exception
+    {
+        //heading = originalHeading+confidence.getValue();
+        heading =0;
+        
+        if (closestBlastProximity < 400)
+        {
+            //if (originalHeading>50)
+            //{
+                heading = heading-(20*confidence.getValue());
+            //}
+            
+            //else
+            //{
+            //    heading = heading+(20*confidence.getValue());
+            //}
+        }
+        
+        if (closestBlastProximity < 250)
+        {
+               heading=originalHeading-45;
+        }
+        
+        if (powerUpOn==true)
+        {
+            heading=nearestPowerUpDirection;
+        }
+        
+    }
+    
+    
+    public double getFirePower() throws Exception
+    {       
         firingControl();
+        upadteDamageOutputSensors(firepower);
         return firepower;
     }
     
@@ -466,24 +663,9 @@ public class Enterprise implements SaucerController
     public double getTurn() throws Exception
     {
         updateRules();
-        
-        double power = outputPower.getValue();
-        double rudderShift =(power+((power)*Math.round(Math.random())*(-2)))/2;
-        
-              
-        // Different equations for different scenarios
-        if (power > 7)
-        {
-            return rudderShift*5;
-        }
-        
-        if (playStyle.getValue() > 70 || relativePower.getValue() > 175)
-        {
-            rudderShift = opponentBearing;
-        }
-        
-        
-        return rudderShift*power/5;
+        steeringBoard(heading);
+ 
+        return heading;
         
 
     }
@@ -491,23 +673,21 @@ public class Enterprise implements SaucerController
     public double getSpeed() throws Exception
     {
         updateRules();
-        // Check if evasive maneuveres need to be taken
+        throttleBoard(speed);
+        System.out.println("confidence = "+confidence.getValue());
+        System.out.println("speed = "+speed);
+        return speed;
         
-        //get the value of the fuzzy variable power, derived from the other fuzzy variables
-        
-        double power = (outputPower.getValue());
-        if (playStyle.getValue() > 70 || relativePower.getValue() > 175)
-        {
-           return ((Saucer.SAUCER_MAX_SPEED)/5 * power);
-        }
-        
-        
-        return ((Saucer.SAUCER_MAX_SPEED)/10 * power);
         
     }
     
-        public boolean getShields()
+    public boolean getShields()
     {
+        System.out.println(closestBlastProximity);
+        if (closestBlastProximity<80 && powerUpOn==false)
+        {
+            return true;
+        }
         return false;
     }   
     
@@ -524,6 +704,48 @@ public class Enterprise implements SaucerController
     public Color getTurretColor()
     {
         return ARROW;
+    }
+    
+    private double reqAveragePower(ArrayList<SensorData> data) 
+    {
+    double sum = 0;
+    if(!data.isEmpty()) {
+      for (SensorData mark : data) {
+          sum += mark.energy;
+      }
+      return sum/ data.size();
+    }
+    return sum;
+    }
+    
+    public SensorData reqStrongestOpponent(ArrayList<SensorData> data)
+    {
+            double strongest = opponentData.get(0).energy;
+            SensorData strongestSaucer = opponentData.get(0);
+            for(SensorData thisData: opponentData)
+            {
+                if(thisData.energy > strongest)
+                {
+                    strongestSaucer = thisData;
+                    strongest = thisData.energy;
+                }
+            }        
+            return strongestSaucer;    
+    }
+    
+    public SensorData reqWeakesttOpponent(ArrayList<SensorData> data)
+    {
+            double weakest = opponentData.get(0).energy;
+            SensorData weakestSaucer = opponentData.get(0);
+            for(SensorData thisData: opponentData)
+            {
+                if(thisData.energy < weakest)
+                {
+                    weakestSaucer = thisData;
+                    weakest = thisData.energy;
+                }
+            }        
+            return weakestSaucer;    
     }
     
 }
